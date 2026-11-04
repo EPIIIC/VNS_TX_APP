@@ -1,0 +1,5 @@
+@import "tailwindcss";
+/* Original UI components and layout classes are retained in App.tsx/ui.tsx. */
+.wave-holder { position:relative; flex:1; min-height:0; }
+.wave-canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+.pb-safe { padding-bottom:env(safe-area-inset-bottom); }

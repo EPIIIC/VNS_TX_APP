@@ -52,6 +52,10 @@ export class GatewayClient {
     this.pending=undefined;clearTimeout(p.timer);p.resolve();
     if(p.op!==StimOp.Keepalive)this.cb.ack(`${p.local?'TX':'RX'} ${StimOp[p.op]}: OK`);
   }
+  private clearPending(id:number) {
+    const pending=this.pending;
+    if(pending?.id===id){clearTimeout(pending.timer);this.pending=undefined;}
+  }
   async command(op:StimOp,p?:StimParameters) {
     if(!this.write)throw Error('Stimulation Gateway is unavailable on this TX firmware');
     if(op===StimOp.Stop){this.endLease();this.pending?.reject(Error('Cancelled by STOP'));if(this.pending)clearTimeout(this.pending.timer);this.pending=undefined;}
@@ -65,7 +69,7 @@ export class GatewayClient {
       await acknowledged;
       if(op===StimOp.Start&&epoch===this.epoch)this.beginLease();
     } catch(e) {
-      if(this.pending?.id===id){clearTimeout(this.pending.timer);this.pending=undefined;}
+      this.clearPending(id);
       this.endLease();throw e;
     }
   }

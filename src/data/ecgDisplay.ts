@@ -1,5 +1,6 @@
 import type { Sample } from '../ble/protocol';
 import {DisplayFilterChain} from './displayFilters';
+import {ECG_WAVELET_DELAY,ECG_WAVELET_WINDOW,WaveletEcgDenoiser} from './ecgAdvancedProcessing';
 
 /** Display-only points keep their original sample for quality and time checks.
  * Neither this module nor the renderer writes back into the recording. */
@@ -12,12 +13,15 @@ export type WavePoint = {
 };
 
 export const ECG_FILTER_LABEL='User-selected display filters';
-export const ECG_FILTER_CONFIG=Object.freeze({sampleRate:256,highPassHz:0,sensorHighPassHz:.5,lowPassHz:40,lowPassOrder:2,notchHz:50,notchQ:10});
-export type DisplayOptions={mode:'raw'|'monitor';notch:boolean;unit:'mv'|'counts';range:number|null;highPass?:number|null;lowPass?:number|null};
-export const DEFAULT_DISPLAY:DisplayOptions={mode:'monitor',notch:true,unit:'mv',range:1,highPass:null,lowPass:40};
+export const ECG_FILTER_CONFIG=Object.freeze({sampleRate:256,highPassHz:0,sensorHighPassHz:.5,lowPassHz:40,lowPassOrder:2,notchHz:50,notchQ:10,
+  wavelet:'CDF 5/3',waveletWindow:ECG_WAVELET_WINDOW,waveletDelaySamples:ECG_WAVELET_DELAY});
+export type EcgDenoise='off'|'wavelet';
+export type DisplayOptions={mode:'raw'|'monitor';notch:boolean;unit:'mv'|'counts';range:number|null;highPass?:number|null;lowPass?:number|null;denoise?:EcgDenoise};
+export const DEFAULT_DISPLAY:DisplayOptions={mode:'monitor',notch:true,unit:'mv',range:1,highPass:null,lowPass:40,denoise:'off'};
 export function ecgFilterLabel(options:DisplayOptions) {
   if(options.mode==='raw')return 'Raw sensor · GUI filters off';
-  return `GUI HP ${options.highPass??'off'}${options.highPass?' Hz':''} · LP ${options.lowPass===undefined?40:options.lowPass??'off'}${options.lowPass===null?'':' Hz'} · ${options.notch?'50 Hz notch':'Notch off'}`;
+  const base=`GUI HP ${options.highPass??'off'}${options.highPass?' Hz':''} · LP ${options.lowPass===undefined?40:options.lowPass??'off'}${options.lowPass===null?'':' Hz'} · ${options.notch?'50 Hz notch':'Notch off'}`;
+  return options.denoise==='wavelet'?`${base} · CDF 5/3 wavelet (balanced)`:base;
 }
 const RATE=ECG_FILTER_CONFIG.sampleRate, WARMUP=RATE;
 
@@ -25,13 +29,16 @@ export class EcgDisplay {
   private previous:Readonly<Sample>|undefined;
   private count=0;
   private chain:DisplayFilterChain;
-  constructor(private options:Pick<DisplayOptions,'mode'|'notch'|'highPass'|'lowPass'>={mode:'monitor',notch:true}) {
+  private denoiser:WaveletEcgDenoiser|null;
+  private denoiseStarted=false;
+  constructor(private options:Pick<DisplayOptions,'mode'|'notch'|'highPass'|'lowPass'|'denoise'>={mode:'monitor',notch:true}) {
     this.chain=new DisplayFilterChain(RATE,{highPass:options.highPass,
       lowPass:options.lowPass===undefined?40:options.lowPass,notch:options.notch?50:null});
+    this.denoiser=options.denoise==='wavelet'?new WaveletEcgDenoiser():null;
   }
 
   reset() { this.previous=undefined;this.count=0;this.clearFilter(); }
-  private clearFilter() {this.count=0;this.chain.reset();}
+  private clearFilter() {this.count=0;this.chain.reset();this.denoiser?.reset();this.denoiseStarted=false;}
 
   push(sample:Readonly<Sample>):WavePoint {
     const old=this.previous;
@@ -45,7 +52,7 @@ export class EcgDisplay {
     this.previous=sample;
     // Raw is exactly the sensor output; internal calibration always bypasses
     // additional GUI filters. No gain or waveform values are invented.
-    if(this.options.mode==='raw'||!this.chain.active||(sample.flags&16)||(sample.source!==undefined&&sample.source>0)) {
+    if(this.options.mode==='raw'||(!this.chain.active&&!this.denoiser)||(sample.flags&16)||(sample.source!==undefined&&sample.source>0)) {
       return {sample,a:sample.a,b:null,gap:!continuous,mode:'raw'};
     }
     if(!good) {
@@ -57,9 +64,15 @@ export class EcgDisplay {
     if(!continuous)this.clearFilter();
     const y=this.chain.push(sample.a);
     this.count++;
-    const ready=this.count>WARMUP;
-    return {sample,a:ready?y:sample.a,b:null,gap:!continuous||this.count===WARMUP+1,
-      mode:ready?'filtered':'settling'};
+    const ready=!this.chain.active||this.count>WARMUP;
+    if(!ready)return {sample,a:sample.a,b:null,gap:!continuous,mode:'settling'};
+    if(this.denoiser) {
+      const output=this.denoiser.push(sample,y);
+      if(!output)return {sample,a:sample.a,b:null,gap:!continuous,mode:'settling'};
+      const first=!this.denoiseStarted;this.denoiseStarted=true;
+      return {sample:output.sample,a:output.value,b:null,gap:first,mode:'filtered'};
+    }
+    return {sample,a:y,b:null,gap:!continuous||this.count===WARMUP+1,mode:'filtered'};
   }
 }
 

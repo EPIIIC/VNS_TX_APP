@@ -23,10 +23,11 @@ test('PPG fault does not suppress fresh temperature; device time invalidates sta
   assert.equal(measurementFresh(temp,{...s,faults:6},4),false);
   assert.equal(measurementFresh(temp,{...s,monitoring:false,activeSensors:0},4),false);
 });
-test('invalid raw ECG remains visible without fabricating a validity or R-R claim',()=>{
+test('invalid raw ECG remains visible while filtered-only CSV omits its raw value',()=>{
   const raw:Sample={type:'ecg',timeUs:1_500_000,index:0,a:-123,b:0xffffc0,tag:0,flags:10,valid:false};
   assert.ok(drawableSample(raw,'ecg'));assert.equal(raw.valid,false);
-  const exported=csv([{...raw,bootId:1,connection:1}]);assert.match(exported,/1500000,0,-123/);
+  const exported=csv([{...raw,bootId:1,connection:1}]);assert.match(exported,/1500000,0,/);
+  assert.doesNotMatch(exported,/-123/);
   assert.doesNotMatch(exported,/flags|valid|error|fault/);
   assert.equal(drawableSample({...raw,type:'ppg'},'ppg'),false);
   assert.equal(measurementFresh({...raw,type:'rr'},partialStatus(),1),false);

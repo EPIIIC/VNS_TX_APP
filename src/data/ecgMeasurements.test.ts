@@ -24,7 +24,8 @@ test('gain-tagged C-compatible bytes preserve 18-bit extremes, source and ration
   const s=decodeSamples(metaFrame());assert.deepEqual(s.map(x=>x.a),[-131072,131071,-32769]);
   assert.equal(s[0].gain,80);assert.equal(s[0].inputMv,-12.5);assert.equal(s[1].timeUs,1003907);
   const cal=decodeSamples(metaFrame(1));assert.ok(cal.every(s=>s.source===1&&!s.valid));
-  assert.match(csv(cal.map(s=>({...s,bootId:1,connection:1}))),/internal_cal_0.5mVpp/);
+  const exported=csv(cal.map(s=>({...s,bootId:1,connection:1})));
+  assert.match(exported,/1000000,123,/);assert.doesNotMatch(exported,/internal_cal|ecg_raw/);
   assert.throws(()=>decodeSamples(metaFrame(255)));assert.throws(()=>decodeSamples(metaFrame(0,0)));
 });
 test('Raw and calibration modes are exact sensor values, independent of GUI filters',()=>{

@@ -32,6 +32,7 @@ export default function App() {
   const spo2=useRef(new Spo2Analyzer());
   const trends=useRef<{temperature:TrendPoint[];hrv:TrendPoint[]}>({temperature:[],hrv:[]});
   const waves = useRef<{ecg:WavePoint[];ppg:WavePoint[]}>({ecg:[],ppg:[]});
+  const ecgHistory=useRef<Readonly<Sample>[]>([]);
   const ecgDisplay=useRef(new EcgDisplay(DEFAULT_DISPLAY));
   const optionsRef=useRef<DisplayOptions>(DEFAULT_DISPLAY);
   const [display,setDisplay]=useState<DisplayOptions>(DEFAULT_DISPLAY);
@@ -50,7 +51,7 @@ export default function App() {
   const [loss, setLoss] = useState(0), [rows, setRows] = useState(0), [recordFull, setRecordFull] = useState(false);
   const [temp, setTemp] = useState<Sample|null>(null), [lastTime, setLastTime] = useState(0);
   const [led, setLed] = useState(31), [windowSeconds, setWindowSeconds] = useState(8);
-  const clearPlots = useCallback(() => { waves.current={ecg:[],ppg:[]};trends.current={temperature:[],hrv:[]};hrv.current.reset();spo2.current.reset();ecgDisplay.current=new EcgDisplay(optionsRef.current);ppgFilter.current=new PpgDisplay(ppgOptionsRef.current);ecgScale.current=new StableEcgScale();setPlotEpoch(n=>n+1);setTemp(null);setLastTime(0); }, []);
+  const clearPlots = useCallback(() => { waves.current={ecg:[],ppg:[]};ecgHistory.current=[];trends.current={temperature:[],hrv:[]};hrv.current.reset();spo2.current.reset();ecgDisplay.current=new EcgDisplay(optionsRef.current);ppgFilter.current=new PpgDisplay(ppgOptionsRef.current);ecgScale.current=new StableEcgScale();setPlotEpoch(n=>n+1);setTemp(null);setLastTime(0); }, []);
   useEffect(() => {
     const tx = new TxClient({
       link:(label,on) => {
@@ -75,6 +76,10 @@ export default function App() {
         recorder.current.add(captured,currentBoot.current,connection.current);
         for (const s of captured) {
           if (s.type==='ecg'||s.type==='ppg') {
+            if(s.type==='ecg') {
+              ecgHistory.current.push(s);
+              if(ecgHistory.current.length>4096)ecgHistory.current.splice(0,ecgHistory.current.length-4096);
+            }
             const buffer=waves.current[s.type];buffer.push(s.type==='ecg'?ecgDisplay.current.push(s):ppgFilter.current.push(s));
             const limit=s.type==='ecg'?4096:1600;if(buffer.length>limit)buffer.splice(0,buffer.length-limit);
           } else if (s.type==='temperature') {
@@ -116,14 +121,14 @@ export default function App() {
   const clear=()=>{recorder.current.clear();setRows(0);setRecordFull(false);clearPlots();};
   const changeDisplay=(value:DisplayOptions)=>{
     optionsRef.current=value;setDisplay(value);const filter=new EcgDisplay(value);
-    waves.current.ecg=waves.current.ecg.map(p=>filter.push(p.sample));ecgDisplay.current=filter;setPlotEpoch(n=>n+1);
+    waves.current.ecg=ecgHistory.current.map(s=>filter.push(s));ecgDisplay.current=filter;setPlotEpoch(n=>n+1);
   };
   const changePpgDisplay=(value:PpgDisplayOptions)=>{
     ppgOptionsRef.current=value;setPpgDisplay(value);const filter=new PpgDisplay(value);
     waves.current.ppg=waves.current.ppg.map(p=>filter.push(p.sample));ppgFilter.current=filter;
   };
   const running=connected&&!!deviceStatus?.monitoring;
-  const ecgRaw=waves.current.ecg.map(p=>p.sample),ecgEnd=ecgRaw.at(-1)?.timeUs??0;
+  const ecgRaw=ecgHistory.current,ecgEnd=ecgRaw.at(-1)?.timeUs??0;
   const metrics=ecgMetrics(ecgRaw.filter(s=>s.timeUs>=ecgEnd-windowSeconds*1e6));
   const ecgUnit=display.unit==='mv'&&!ecgRaw.some(s=>s.timeUs>=ecgEnd-windowSeconds*1e6&&s.gain===undefined)?'mV':'Counts';
   const calibration=metrics.source??ecgInfo?.selectedSource??0;

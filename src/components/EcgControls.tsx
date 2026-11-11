@@ -22,6 +22,13 @@ export function EcgControls({info,status,busy,display,setDisplay,configure,read}
         <div><Label htmlFor="ecg-lowpass">ECG extra low-pass</Label><select id="ecg-lowpass" className={select} value={display.lowPass===undefined?40:display.lowPass??'off'} disabled={display.mode==='raw'} onChange={e=>setDisplay({...display,lowPass:e.target.value==='off'?null:Number(e.target.value)})}><option value="off">Off</option>{[20,30,40].map(v=><option key={v} value={v}>{v} Hz</option>)}</select></div>
       </div>
       <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={display.notch} disabled={display.mode==='raw'} onChange={e=>setDisplay({...display,notch:e.target.checked})}/>ECG 50 Hz notch</label>
+      <div className="border-t border-slate-100 pt-4">
+        <Label htmlFor="ecg-denoise">ECG Signal Processing</Label>
+        <select id="ecg-denoise" className={select} value={display.denoise??'off'} disabled={display.mode==='raw'} onChange={e=>setDisplay({...display,denoise:e.target.value as NonNullable<DisplayOptions['denoise']>})}>
+          <option value="off">Off (current processing only)</option>
+          <option value="wavelet">Wavelet denoise · balanced</option>
+        </select>
+      </div>
       <div><Label htmlFor="ecg-range">Y-axis range</Label><select id="ecg-range" className={select} value={display.range??'auto'} onChange={e=>setDisplay({...display,range:e.target.value==='auto'?null:Number(e.target.value)})}><option value="auto">Auto Scale</option>{(display.unit==='mv'?[.05,.1,.25,.5,1,2,5,12.5]:[256,1024,4096,16384,32768,131072]).map(v=><option key={v} value={v}>±{v} {display.unit==='mv'?'mV':'Counts'}</option>)}</select></div>
       <div className="grid grid-cols-2 gap-3 border-t border-slate-100 pt-4">
         <div><Label htmlFor="ecg-gain">Hardware gain</Label><select id="ecg-gain" className={select} value={gain} disabled={!supported||busy||status?.monitoring} onChange={e=>setGain(Number(e.target.value))}>{[20,40,80,160].map(v=><option key={v} value={v}>{v} V/V</option>)}</select></div>
